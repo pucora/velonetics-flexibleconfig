@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/Masterminds/sprig/v3 v3.2.3
-	github.com/velonetics/lura/v2 v2.11.0
+	github.com/velonetics/lura/v2 v2.0.0
 )
 
 require (
