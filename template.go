@@ -13,7 +13,7 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/sprig/v3"
-	"github.com/velonetics/lura/v2/config"
+	"github.com/pucora/lura/v2/config"
 )
 
 type Config struct {
@@ -100,7 +100,7 @@ func (t *TemplateParser) Parse(configFile string) (config.ServiceConfig, error) 
 		return config.ServiceConfig{}, t.err
 	}
 
-	tmpfile, err := os.CreateTemp("", "Velonetics_parsed_config_template_")
+	tmpfile, err := os.CreateTemp("", "Pucora_parsed_config_template_")
 	if err != nil {
 		log.Println("Couldn't create the temporary file:", err)
 		return config.ServiceConfig{}, err

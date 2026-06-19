@@ -6,11 +6,11 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/sprig/v3"
-	"github.com/velonetics/lura/v2/config"
+	"github.com/pucora/lura/v2/config"
 )
 
 func ExampleTemplateParser_marshal() {
-	tmpfile, err := os.CreateTemp("", "Velonetics_parsed_config_template_0_")
+	tmpfile, err := os.CreateTemp("", "Pucora_parsed_config_template_0_")
 	if err != nil {
 		fmt.Println(err.Error())
 		return
@@ -118,7 +118,7 @@ func ExampleTemplateParser_marshal() {
 }
 
 func ExampleTemplateParser_include() {
-	tmpfile, err := os.CreateTemp("", "Velonetics_parsed_config_template_1_")
+	tmpfile, err := os.CreateTemp("", "Pucora_parsed_config_template_1_")
 	if err != nil {
 		fmt.Println(err.Error())
 		return
@@ -134,7 +134,7 @@ func ExampleTemplateParser_include() {
 		return
 	}
 
-	includeTmpfile, err := os.CreateTemp("", "Velonetics_parsed_config_template_2_")
+	includeTmpfile, err := os.CreateTemp("", "Pucora_parsed_config_template_2_")
 	if err != nil {
 		fmt.Println(err.Error())
 		return

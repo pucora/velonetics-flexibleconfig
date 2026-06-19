@@ -1,2 +1,2 @@
 # velonetics-flexibleconfig
-Extended features for Velonetics config parsers
+Extended features for Pucora config parsers
