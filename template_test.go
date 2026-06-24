@@ -3,6 +3,7 @@ package flexibleconfig
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/template"
 
 	"github.com/Masterminds/sprig/v3"
@@ -141,7 +142,8 @@ func ExampleTemplateParser_include() {
 	}
 
 	defer os.Remove(includeTmpfile.Name())
-	if _, err := fmt.Fprintf(includeTmpfile, "{{ include \"%s\" }}", tmpfile.Name()); err != nil {
+	pathToInclude := filepath.ToSlash(tmpfile.Name())
+	if _, err := fmt.Fprintf(includeTmpfile, "{{ include \"%s\" }}", pathToInclude); err != nil {
 		fmt.Println(err.Error())
 		return
 	}

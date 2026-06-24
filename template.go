@@ -80,19 +80,82 @@ func NewTemplateParser(cfg Config) *TemplateParser {
 }
 
 type TemplateParser struct {
-	Vars      map[string]interface{}
-	Partials  string
-	Parser    config.Parser
-	Templates []string
-	Path      string
-	err       parserError
-	funcMap   template.FuncMap
-
-	lastSource []byte
+	Vars        map[string]interface{}
+	Partials    string
+	Parser      config.Parser
+	Templates   []string
+	Path        string
+	err         parserError
+	funcMap     template.FuncMap
+	RefKey      string
+	Meta        *Meta
+	flexCfg     *FlexibleConfig
+	resolver    *RefResolver
+	extFuncs    *ExtendedFuncs
+	lastSource  []byte
+	undefinedVars string
 }
 
 func (t *TemplateParser) AddFunc(name string, f interface{}) {
 	t.funcMap[name] = f
+}
+
+func (t *TemplateParser) SetRefKey(key string) {
+	t.RefKey = key
+}
+
+func (t *TemplateParser) SetMeta(meta *Meta) {
+	t.Meta = meta
+}
+
+func (t *TemplateParser) SetFlexibleConfig(fc *FlexibleConfig) {
+	t.flexCfg = fc
+	if fc != nil {
+		t.undefinedVars = fc.GetUndefinedVars()
+	}
+}
+
+func (t *TemplateParser) SetBaseDir(baseDir string) {
+	t.resolver = NewRefResolver(baseDir)
+}
+
+func (t *TemplateParser) SetExtendedFuncs(ef *ExtendedFuncs) {
+	t.extFuncs = ef
+	if ef != nil {
+		t.undefinedVars = ef.undefinedVars
+	}
+}
+
+func (t *TemplateParser) parseWithRefs(configFile string) ([]byte, error) {
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, nil
+	}
+
+	if t.resolver == nil {
+		t.resolver = NewRefResolver(filepath.Dir(configFile))
+	}
+
+	if t.RefKey != "" && t.RefKey != "$ref" {
+		t.resolver.refKey = t.RefKey
+	}
+
+	resolved, err := t.resolver.Resolve(parsed, t.Vars)
+	if err != nil {
+		return data, nil
+	}
+
+	result, err := json.MarshalIndent(resolved, "", "  ")
+	if err != nil {
+		return data, nil
+	}
+
+	return result, nil
 }
 
 func (t *TemplateParser) Parse(configFile string) (config.ServiceConfig, error) {
@@ -108,9 +171,47 @@ func (t *TemplateParser) Parse(configFile string) (config.ServiceConfig, error) 
 
 	defer os.Remove(tmpfile.Name())
 
+	refResolvedData, refErr := t.parseWithRefs(configFile)
+	if refErr == nil && refResolvedData != nil {
+		if err := t.writeOutput(string(refResolvedData)); err != nil {
+			log.Println("Warning: failed to write output file:", err)
+		}
+
+		if _, err := tmpfile.Write(refResolvedData); err != nil {
+			log.Println("Unable to write ref-resolved configuration:", err)
+			return t.Parser.Parse(configFile)
+		}
+		if err := tmpfile.Close(); err != nil {
+			log.Println("Unable to close temp file:", err)
+			return config.ServiceConfig{}, err
+		}
+
+		filename := tmpfile.Name() + ".json"
+		if t.Path != "" {
+			filename = t.Path
+		}
+		if err := renameFile(tmpfile.Name(), filename); err != nil {
+			return config.ServiceConfig{}, err
+		}
+
+		t.lastSource, _ = os.ReadFile(filename)
+		cfg, err := t.Parser.Parse(filename)
+
+		if t.Path == "" {
+			os.Remove(filename)
+		}
+
+		return cfg, err
+	}
+
 	var buf bytes.Buffer
 
-	tmpl, err := template.New("config").Funcs(t.funcMap).ParseFiles(configFile)
+	useFuncs := t.funcMap
+	if t.extFuncs != nil {
+		useFuncs = t.extFuncs.FuncMap()
+	}
+
+	tmpl, err := template.New("config").Funcs(useFuncs).ParseFiles(configFile)
 	if err != nil {
 		log.Println("Unable to parse configuration file:", err)
 		return t.Parser.Parse(configFile)
@@ -122,10 +223,27 @@ func (t *TemplateParser) Parse(configFile string) (config.ServiceConfig, error) 
 			return t.Parser.Parse(configFile)
 		}
 	}
-	err = tmpl.ExecuteTemplate(&buf, filepath.Base(configFile), t.Vars)
+
+	varsToUse := t.Vars
+	if t.Meta != nil {
+		if varsToUse == nil {
+			varsToUse = make(map[string]interface{})
+		}
+		metaKey := "meta"
+		if t.flexCfg != nil {
+			metaKey = t.flexCfg.GetMetaKey()
+		}
+		varsToUse[metaKey] = t.Meta.ToMap()
+	}
+
+	err = tmpl.ExecuteTemplate(&buf, filepath.Base(configFile), varsToUse)
 	if err != nil {
 		log.Println("Found error while executing template:", err)
 		return t.Parser.Parse(configFile)
+	}
+
+	if err := t.writeOutput(buf.String()); err != nil {
+		log.Println("Warning: failed to write output file:", err)
 	}
 
 	if _, err = tmpfile.Write(buf.Bytes()); err != nil {
@@ -172,6 +290,23 @@ func (t *TemplateParser) include(v interface{}) string {
 	return string(a)
 }
 
+func (t *TemplateParser) writeOutput(content string) error {
+	if t.flexCfg == nil || t.flexCfg.Out == "" {
+		return nil
+	}
+
+	absPath, err := filepath.Abs(t.flexCfg.Out)
+	if err != nil {
+		return fmt.Errorf("failed to resolve output path: %w", err)
+	}
+
+	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	return nil
+}
+
 type parserError struct {
 	errors map[string]error
 }
@@ -198,7 +333,6 @@ func renameFile(src, dst string) (err error) {
 	return nil
 }
 
-// credit https://gist.github.com/r0l1/92462b38df26839a3ca324697c8cba04
 func copyFile(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil {
